@@ -40,23 +40,28 @@ As alterações são aplicadas na próxima sincronização manual ou automática
 - **Formato do bloco principal**:
 
 ```
-[[January 2nd, 2025]] Title [todoist](https://todoist.com/showTask?id=123456789)
-todoist-id:: [123456789](https://todoist.com/showTask?id=123456789)
-todoist-project:: #Inbox
-todoist-due:: January 2nd, 2025
-todoist-desc:: Optional description
-todoist-labels:: #label-1 #label-2
-todoist-status:: ✅
+[[January 2nd, 2025]] Task title #ProjectName
+  todoist-id:: [123456789](https://todoist.com/showTask?id=123456789)
+  todoist-due:: January 2nd, 2025
+  todoist-desc:: Optional description
+  todoist-labels:: #label-1 #label-2
+  todoist-completed:: [[January 2nd, 2025]]
+  todoist-status:: ✅
+  comments...
+    todoist-comments:: 2
+    [todoist](https://todoist.com/app/task/123456789/comment/456) Comment text
+      todoist-comment-id:: 456
+      todoist-comment-posted:: 2025-01-02T10:00:00.000Z
 ```
 
-Datas são renderizadas como `MMMM Do, YYYY`, alinhadas ao padrão das páginas diárias do Roam. Labels são sanitizadas e prefixadas com `#`. Quando a captura de comentários está ativa, um bloco filho `comments...` traz cada comentário do Todoist ordenado cronologicamente.
+Dates are rendered as `MMMM Do, YYYY`, aligned with Roam's daily pages standard. Labels are sanitized and prefixed with `#`. When comment capture is active, a `comments...` child block brings each Todoist comment ordered chronologically.
 
 ## Sync behavior
 
-- Cada tarefa permanece na página `todoist/<todoist-id>`. Blocos existentes são atualizados, novos são adicionados e tarefas removidas do Todoist deixam de aparecer (concluídas permanecem).
-- Datas exibidas usam o formato `MMMM Do, YYYY`, permitindo links diretos com páginas diárias do Roam.
-- Comentários (quando habilitados) aparecem como blocos filhos com links diretos para o Todoist.
-- Todo o fluxo é somente leitura em relação ao Todoist.
+- Each task remains on the `todoist/<todoist-id>` page. Existing blocks are updated, new ones are added, and tasks removed from Todoist stop appearing (completed ones remain).
+- Displayed dates use the `MMMM Do, YYYY` format, allowing direct links with Roam's daily pages.
+- Comments (when enabled) appear as child blocks with direct links to Todoist.
+- The entire flow is read-only in relation to Todoist.
 
 ## Development
 

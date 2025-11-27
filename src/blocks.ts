@@ -100,8 +100,8 @@ export async function writeBlocks(
 }
 
 async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
+  // ensurePage/createPage includes its own delay when creating new pages
   const pageUid = await ensurePage(pageName);
-  await delay(MUTATION_DELAY_MS);
 
   const existingTree = getBasicTreeByParentUid(pageUid);
   const blockMap = buildBlockMap(existingTree);
@@ -145,12 +145,12 @@ async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
       await syncChildren(existing.uid, block.children);
     } else {
       logDebug("create_new_block", { todoistId, pageName });
+      // createBlock includes its own delays for rate limiting
       await createBlock({
         parentUid: pageUid,
         order: "last",
         node: toInputNode(block),
       });
-      await delay(MUTATION_DELAY_MS);
     }
   }
 
@@ -163,8 +163,8 @@ async function ensurePage(pageName: string): Promise<string> {
   if (existingUid) {
     return existingUid;
   }
+  // createPage includes its own delay for rate limiting
   const uid = await createPage({ title: pageName });
-  await delay(MUTATION_DELAY_MS);
   return uid;
 }
 
@@ -234,13 +234,12 @@ async function syncChildren(parentUid: string, newChildren: BlockPayload[]) {
         }
         existingPropsMap.delete(propKey); // Mark as processed
       } else {
-        // Create new property
+        // Create new property - createBlock includes its own delays
         await createBlock({
           parentUid,
           order: "last",
           node: toInputNode(newChild),
         });
-        await delay(MUTATION_DELAY_MS);
       }
     } else if (isCommentWrapper(newChild.text)) {
       // It's a comment wrapper - delete old one and recreate
@@ -250,12 +249,12 @@ async function syncChildren(parentUid: string, newChildren: BlockPayload[]) {
           await delay(MUTATION_DELAY_MS);
         }
       }
+      // createBlock includes its own delays
       await createBlock({
         parentUid,
         order: "last",
         node: toInputNode(newChild),
       });
-      await delay(MUTATION_DELAY_MS);
     }
   }
 }

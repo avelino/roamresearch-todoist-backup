@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Rate limit exceeded error during sync with many tasks - increased mutation delay from 50ms to 100ms and added proper delays in recursive block creation
+
 ## [0.1.0] - 2025-11-27
 
 ### Added

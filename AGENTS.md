@@ -70,7 +70,7 @@ Module Details
 - `initializeSettings`: Detects settings panel support; registers panel or creates config page.
 - `readSettings`: Returns `SettingsSnapshot` from panel or page-based config.
 - Settings keys: `todoist_token`, `page_prefix`, `sync_interval_minutes`, `include_comments`, `exclude_title_patterns`, `enable_debug_logs`, `status_alias_*`.
-- `MUTATION_DELAY_MS`: 50ms throttle between Roam mutations (respects 1500/60s rate limit).
+- `MUTATION_DELAY_MS`: 100ms throttle between Roam mutations (respects 1500/60s rate limit with safety margin).
 
 ### scheduler.ts
 
@@ -157,7 +157,7 @@ Performance & Scheduling
 - Avoid blocking the UI thread; fetch Todoist resources in parallel (`Promise.all`) and keep DOM updates minimal.
 - Work on cloned task arrays (`[...tasks]`) to avoid mutating caller-owned data.
 - Avoid creating persistent placeholders; if `No tasks found.` blocks remain from previous versions, remove them during sync.
-- Respect Roam mutation rate limit: use `MUTATION_DELAY_MS` (50ms) between API calls.
+- Respect Roam mutation rate limit: use `MUTATION_DELAY_MS` (100ms) between API calls. Mutation functions (`createBlock`, `createPage`) include their own delays, so callers should not add extra delays after calling them.
 
 Security & Privacy
 

@@ -128,6 +128,7 @@ function getPageTitlesStartingWithPrefix(prefix: string): string[] {
 
 /**
  * Creates a page using Roam API.
+ * Includes delay after page creation and between initial blocks.
  */
 async function createPage(config: { title: string; tree?: InputTextNode[] }): Promise<string> {
   const api = getRoamAPI();
@@ -135,6 +136,8 @@ async function createPage(config: { title: string; tree?: InputTextNode[] }): Pr
 
   if (api?.createPage) {
     await api.createPage({ page: { title: config.title, uid } });
+    // Delay after page creation
+    await delay(MUTATION_DELAY_MS);
 
     if (config.tree && config.tree.length > 0) {
       for (let i = 0; i < config.tree.length; i++) {
@@ -148,6 +151,7 @@ async function createPage(config: { title: string; tree?: InputTextNode[] }): Pr
 
 /**
  * Creates a block using Roam API.
+ * Includes delay after the main block creation; child blocks have their own delays.
  */
 async function createBlock(config: { parentUid: string; order: number | "last"; node: InputTextNode }): Promise<string> {
   const api = getRoamAPI();
@@ -158,6 +162,8 @@ async function createBlock(config: { parentUid: string; order: number | "last"; 
       location: { "parent-uid": config.parentUid, order: config.order },
       block: { string: config.node.text, uid },
     });
+    // Delay after main block creation
+    await delay(MUTATION_DELAY_MS);
 
     if (config.node.children && config.node.children.length > 0) {
       for (let i = 0; i < config.node.children.length; i++) {
@@ -178,6 +184,8 @@ async function createBlockRecursive(parentUid: string, node: InputTextNode, orde
       location: { "parent-uid": parentUid, order },
       block: { string: node.text, uid },
     });
+    // Delay after each mutation to respect rate limits
+    await delay(MUTATION_DELAY_MS);
 
     if (node.children && node.children.length > 0) {
       for (let i = 0; i < node.children.length; i++) {
@@ -222,9 +230,9 @@ export function delay(ms: number): Promise<void> {
 /**
  * Throttle delay between Roam API mutations (in ms).
  * Roam allows 1500 mutations per 60000ms = 25 mutations/second = 40ms between mutations.
- * Using 50ms to be safe.
+ * Using 100ms to be safe and account for recursive block creation overhead.
  */
-export const MUTATION_DELAY_MS = 50;
+export const MUTATION_DELAY_MS = 100;
 
 /**
  * Creates a flexible regex for matching setting keys.
