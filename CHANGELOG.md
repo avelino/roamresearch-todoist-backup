@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.0...v1.0.1) (2025-11-27)
+
+
+### Bug Fixes
+
+* interpret ISO date-only (YYYY-MM-DD) values as local time in formatDisplayDate ([1005f9c](https://github.com/avelino/roamresearch-todoist-backup/commit/1005f9ce1f148e5c7483149227057fd797e60352))
+
 # 1.0.0 (2025-11-27)
 
 
