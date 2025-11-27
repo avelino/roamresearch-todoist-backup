@@ -1,0 +1,4 @@
+ignoredBuiltDependencies:
+  - core-js-pure
+  - esbuild
+  - roamjs-components
