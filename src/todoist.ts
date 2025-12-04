@@ -610,13 +610,42 @@ export function formatLabelTag(label: string) {
 export function convertInlineTodoistLabels(text: string): string {
   if (!text) return "";
 
+  const normalizeLabel = (raw: string) => safeText(raw);
+
+  const isDomainLike = (value: string) => /\./.test(value);
+
+  const formatInlineLabel = (label: string) => {
+    const normalized = normalizeLabel(label);
+    if (!normalized) return "";
+    // Skip domain-like mentions (e.g., @example.com) to avoid mangling emails
+    if (isDomainLike(normalized) && !normalized.includes("/")) {
+      return `@${label}`;
+    }
+    // Person-style labels (Todoist @@) remain wiki links with leading @ preserved
+    if (label.startsWith("@")) {
+      const name = normalizeLabel(label.slice(1));
+      return name ? `[[@${name}]]` : "";
+    }
+    // Hierarchical or spaced labels become wiki links to keep the full name intact
+    if (normalized.includes("/") || normalized.includes(" ")) {
+      return `[[${normalized}]]`;
+    }
+    // Default: convert to hashtag
+    return `#${normalized}`;
+  };
+
   const convertSegment = (segment: string) =>
     segment
-      // First convert @@name to [[@name]] (person page links)
-      .replace(/(?<![a-zA-Z0-9])@@([\w-]+)/g, "[[@$1]]")
-      // Then convert @label to #label (regular labels)
-      // Note: lookbehind includes [ to avoid converting @name inside [[@name]] wiki links
-      .replace(/(?<![a-zA-Z0-9[])@([\w-]+)/g, "#$1");
+      // First convert @@name (person page links)
+      .replace(
+        /(?<![a-zA-Z0-9[])@@([^\s@]+(?:\s+[^\s@]+)*)/g,
+        (_match, label) => formatInlineLabel(`@${label}`)
+      )
+      // Then convert @label (regular labels and hierarchies)
+      .replace(
+        /(?<![a-zA-Z0-9[])@([^\s@]+(?:\s+[^\s@]+)*)/g,
+        (_match, label) => formatInlineLabel(label)
+      );
 
   let result = "";
   let index = 0;
