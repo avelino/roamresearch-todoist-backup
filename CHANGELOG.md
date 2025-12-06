@@ -1,3 +1,5 @@
+# [2.0.0](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.3...v2.0.0) (2025-12-06)
+
 ## [1.0.3](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.2...v1.0.3) (2025-12-06)
 
 
