@@ -257,6 +257,18 @@ export function yieldToMain(): Promise<void> {
 }
 
 /**
+ * Conditionally yields to main thread based on operation count.
+ * Call this in loops to keep UI responsive without yielding on every iteration.
+ *
+ * @param count Current operation count (1-indexed).
+ */
+export async function maybeYield(count: number): Promise<void> {
+  if (count % YIELD_BATCH_SIZE === 0) {
+    await yieldToMain();
+  }
+}
+
+/**
  * Throttle delay between Roam API mutations (in ms).
  * Roam allows 1500 mutations per 60000ms = 25 mutations/second = 40ms between mutations.
  * Using 100ms to be safe and account for recursive block creation overhead.
@@ -494,27 +506,12 @@ function sanitizeToken(raw: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function compileTitleExcludePatterns(raw: string | undefined): RegExp[] {
-  if (!raw) return [];
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((pattern) => {
-      const { source, flags } = extractPattern(pattern);
-      try {
-        return new RegExp(source, flags);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logWarn("invalid exclude pattern ignored", { pattern, message });
-        return null;
-      }
-    })
-    .filter((value): value is RegExp => value !== null);
-}
-
-function compileTitleExcludePatternsFromTree(rawPatterns: string[]): RegExp[] {
-  return rawPatterns
+/**
+ * Compiles an array of pattern strings into RegExp objects.
+ * Invalid patterns are logged and filtered out.
+ */
+function compilePatterns(patterns: string[]): RegExp[] {
+  return patterns
     .map((pattern) => pattern.trim())
     .filter((pattern) => pattern.length > 0)
     .map((pattern) => {
@@ -528,6 +525,15 @@ function compileTitleExcludePatternsFromTree(rawPatterns: string[]): RegExp[] {
       }
     })
     .filter((value): value is RegExp => value !== null);
+}
+
+function compileTitleExcludePatterns(raw: string | undefined): RegExp[] {
+  if (!raw) return [];
+  return compilePatterns(raw.split(/\r?\n/));
+}
+
+function compileTitleExcludePatternsFromTree(rawPatterns: string[]): RegExp[] {
+  return compilePatterns(rawPatterns);
 }
 
 function extractPattern(input: string) {
@@ -546,48 +552,66 @@ function extractPattern(input: string) {
   return { source: input, flags: "i" };
 }
 
-function readStatusAliases(settings: Record<string, unknown>): StatusAliases {
+/**
+ * Alias reader function type for building status aliases.
+ */
+type AliasReader = (key: string, fallback: string) => string;
+
+/**
+ * Builds StatusAliases using a reader function strategy.
+ * This unifies the logic for both panel and tree-based settings.
+ */
+function buildStatusAliases(readAliasFn: AliasReader): StatusAliases {
   return {
-    active: readAlias(getString(settings, SETTINGS_KEYS.statusAliasActive), DEFAULT_STATUS_ALIAS_ACTIVE),
-    completed: readAlias(
-      getString(settings, SETTINGS_KEYS.statusAliasCompleted),
-      DEFAULT_STATUS_ALIAS_COMPLETED
-    ),
-    deleted: readAlias(
-      getString(settings, SETTINGS_KEYS.statusAliasDeleted),
-      DEFAULT_STATUS_ALIAS_DELETED
-    ),
+    active: readAliasFn("active", DEFAULT_STATUS_ALIAS_ACTIVE),
+    completed: readAliasFn("completed", DEFAULT_STATUS_ALIAS_COMPLETED),
+    deleted: readAliasFn("deleted", DEFAULT_STATUS_ALIAS_DELETED),
   };
+}
+
+/**
+ * Maps status key to settings panel key.
+ */
+function getStatusSettingsKey(status: string): string {
+  const keyMap: Record<string, string> = {
+    active: SETTINGS_KEYS.statusAliasActive,
+    completed: SETTINGS_KEYS.statusAliasCompleted,
+    deleted: SETTINGS_KEYS.statusAliasDeleted,
+  };
+  return keyMap[status] ?? "";
+}
+
+/**
+ * Maps status key to tree key label.
+ */
+function getStatusTreeKey(status: string): string {
+  const keyMap: Record<string, string> = {
+    active: "Status Alias: Active",
+    completed: "Status Alias: Completed",
+    deleted: "Status Alias: Deleted",
+  };
+  return keyMap[status] ?? "";
+}
+
+function readStatusAliases(settings: Record<string, unknown>): StatusAliases {
+  return buildStatusAliases((key, fallback) => {
+    const settingsKey = getStatusSettingsKey(key);
+    const value = getString(settings, settingsKey);
+    const trimmed = (value ?? "").trim();
+    return trimmed || fallback;
+  });
 }
 
 function readStatusAliasesFromTree(tree: RoamBasicNode[]): StatusAliases {
-  return {
-    active: readAliasFromTree(tree, "Status Alias: Active", DEFAULT_STATUS_ALIAS_ACTIVE),
-    completed: readAliasFromTree(
+  return buildStatusAliases((key, fallback) => {
+    const treeKey = getStatusTreeKey(key);
+    const value = getSettingValueFromTree({
       tree,
-      "Status Alias: Completed",
-      DEFAULT_STATUS_ALIAS_COMPLETED
-    ),
-    deleted: readAliasFromTree(
-      tree,
-      "Status Alias: Deleted",
-      DEFAULT_STATUS_ALIAS_DELETED
-    ),
-  };
-}
-
-function readAlias(value: string | undefined, fallback: string): string {
-  const trimmed = (value ?? "").trim();
-  return trimmed || fallback;
-}
-
-function readAliasFromTree(tree: RoamBasicNode[], key: string, fallback: string): string {
-  const value = getSettingValueFromTree({
-    tree,
-    key,
-    defaultValue: fallback,
-  }).trim();
-  return value || fallback;
+      key: treeKey,
+      defaultValue: fallback,
+    }).trim();
+    return value || fallback;
+  });
 }
 
 function getString(settings: Record<string, unknown>, key: string): string | undefined {

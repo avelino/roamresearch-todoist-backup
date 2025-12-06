@@ -130,18 +130,26 @@ function formatHumanDate(date: Date): string {
   return `${month} ${day}${getOrdinalSuffix(day)}, ${year}`;
 }
 
-export function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) {
-    return "";
-  }
+/**
+ * Safely parses a date string to a Date object, handling ISO date-only strings as local time.
+ * Returns null for invalid or missing values.
+ *
+ * @param value Date string to parse.
+ */
+export function safeParseDateToLocal(value: string | null | undefined): Date | null {
+  if (!value) return null;
+
   // For ISO date-only strings (YYYY-MM-DD), append T00:00:00 to interpret as local time
   // Without this, JavaScript interprets as UTC which shifts the date in non-UTC timezones
   const dateValue = ISO_DATE_PATTERN.test(value) ? `${value}T00:00:00` : value;
   const parsed = new Date(dateValue);
-  if (Number.isNaN(parsed.getTime())) {
-    return "";
-  }
-  return formatHumanDate(parsed);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatDisplayDate(value: string | null | undefined): string {
+  const date = safeParseDateToLocal(value);
+  return date ? formatHumanDate(date) : "";
 }
 
 /**
@@ -490,28 +498,28 @@ export function dueTimestamp(due?: TodoistDue | null) {
 }
 
 /**
- * Formats Todoist due information into `YYYY-MM-DD` when possible.
+ * Formats Todoist due information into human-readable Roam date format.
  */
 export function formatDue(due?: TodoistDue | null) {
   if (!due) return "";
-  if (due.date && ISO_DATE_PATTERN.test(due.date)) {
-    return formatDisplayDate(due.date);
-  }
+
+  // Try datetime first (most precise)
   if (due.datetime) {
-    const parsed = new Date(due.datetime);
-    if (!Number.isNaN(parsed.getTime())) {
-      return formatHumanDate(parsed);
-    }
+    const parsed = safeParseDateToLocal(due.datetime);
+    if (parsed) return formatHumanDate(parsed);
   }
+
+  // Try date
   if (due.date) {
-    const parsed = new Date(`${due.date}T00:00:00`);
-    if (!Number.isNaN(parsed.getTime())) {
-      return formatHumanDate(parsed);
-    }
+    const parsed = safeParseDateToLocal(due.date);
+    if (parsed) return formatHumanDate(parsed);
   }
+
+  // Try string fallback
   if (due.string) {
     return formatDisplayDate(due.string);
   }
+
   return "";
 }
 

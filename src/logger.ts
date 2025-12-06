@@ -10,21 +10,34 @@ function isDebugEnabled(): boolean {
   return debugEnabled;
 }
 
+type LogLevel = "info" | "warn" | "error";
+
+/**
+ * Creates a logging function with the specified level and debug requirement.
+ *
+ * @param level Console log level to use.
+ * @param requiresDebug Whether the log should only appear when debug is enabled.
+ */
+function createLogger(level: LogLevel, requiresDebug: boolean) {
+  return (message: string, data?: unknown): void => {
+    if (requiresDebug && !isDebugEnabled()) return;
+
+    const logFn = console[level];
+    if (data !== undefined) {
+      logFn(LOG_PREFIX, message, data);
+    } else {
+      logFn(LOG_PREFIX, message);
+    }
+  };
+}
+
 /**
  * Logs an informational message when debug mode is enabled.
  *
  * @param message Primary log message.
  * @param data Optional additional context.
  */
-export function logInfo(message: string, data?: unknown): void {
-  if (isDebugEnabled()) {
-    if (data !== undefined) {
-      console.info(LOG_PREFIX, message, data);
-    } else {
-      console.info(LOG_PREFIX, message);
-    }
-  }
-}
+export const logInfo = createLogger("info", true);
 
 /**
  * Logs a warning message when debug mode is enabled.
@@ -32,15 +45,7 @@ export function logInfo(message: string, data?: unknown): void {
  * @param message Primary warning message.
  * @param data Optional additional context.
  */
-export function logWarn(message: string, data?: unknown): void {
-  if (isDebugEnabled()) {
-    if (data !== undefined) {
-      console.warn(LOG_PREFIX, message, data);
-    } else {
-      console.warn(LOG_PREFIX, message);
-    }
-  }
-}
+export const logWarn = createLogger("warn", true);
 
 /**
  * Logs an error message. Always visible regardless of debug setting.
@@ -48,13 +53,7 @@ export function logWarn(message: string, data?: unknown): void {
  * @param message Primary error message.
  * @param error Optional error object or additional context.
  */
-export function logError(message: string, error?: unknown): void {
-  if (error !== undefined) {
-    console.error(LOG_PREFIX, message, error);
-  } else {
-    console.error(LOG_PREFIX, message);
-  }
-}
+export const logError = createLogger("error", false);
 
 /**
  * Logs a debug message with structured data when debug mode is enabled.

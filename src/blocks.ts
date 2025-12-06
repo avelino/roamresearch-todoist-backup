@@ -8,8 +8,8 @@ import {
   deleteBlock,
   delay,
   yieldToMain,
+  maybeYield,
   MUTATION_DELAY_MS,
-  YIELD_BATCH_SIZE,
   type RoamBasicNode,
   type InputTextNode,
 } from "./settings";
@@ -32,6 +32,7 @@ import {
   dueTimestamp,
   convertInlineTodoistLabels,
   formatDisplayDate,
+  safeParseDateToLocal,
   TodoistBackupTask,
   TodoistComment,
 } from "./todoist";
@@ -47,6 +48,37 @@ type TaskWithBlock = {
   task: TodoistBackupTask;
   block: BlockPayload;
 };
+
+/**
+ * Common interface for nodes that have text and optional children.
+ * Used to unify extraction logic between RoamBasicNode and BlockPayload.
+ */
+interface NodeLike {
+  text: string;
+  children?: Array<{ text: string }>;
+}
+
+/**
+ * Creates a property block with the standard format `key:: value`.
+ */
+function createPropertyBlock(key: string, value: string): BlockPayload {
+  return { text: `${key}:: ${value}`, children: [] };
+}
+
+/**
+ * Extracts todoist-id from any node-like structure (RoamBasicNode or BlockPayload).
+ * Checks main text first, then children (properties stored as child blocks).
+ */
+function extractTodoistIdFromNodeLike<T extends NodeLike>(node: T): string | undefined {
+  let id = extractTodoistId(node.text ?? "");
+  if (id) return id;
+
+  for (const child of node.children ?? []) {
+    id = extractTodoistId(child.text ?? "");
+    if (id) return id;
+  }
+  return undefined;
+}
 
 /**
  * Determines the destination page name for a task.
@@ -104,11 +136,8 @@ export async function writeBlocks(
     const blocks = tasksWithBlocks.map((t) => t.block);
     await writeBlocksToPage(pageName, blocks);
 
-    // Yield to main thread periodically to keep UI responsive
     pageCount++;
-    if (pageCount % YIELD_BATCH_SIZE === 0) {
-      await yieldToMain();
-    }
+    await maybeYield(pageCount);
   }
 
   await cleanupObsoletePages(pagePrefix, tasksByPage);
@@ -171,20 +200,11 @@ function extractExistingDueDate(tree: RoamBasicNode[], taskId: string): string |
 }
 
 /**
- * Extracts todoist-id from a RoamBasicNode, checking both main text and children.
+ * Extracts todoist-id from a RoamBasicNode.
+ * Delegates to the unified extractTodoistIdFromNodeLike helper.
  */
 function extractTodoistIdFromNode(node: RoamBasicNode): string | undefined {
-  // First check main text (legacy format)
-  let id = extractTodoistId(node.text ?? "");
-  if (id) return id;
-
-  // Check children (new format: properties as child blocks)
-  for (const child of node.children ?? []) {
-    id = extractTodoistId(child.text ?? "");
-    if (id) return id;
-  }
-
-  return undefined;
+  return extractTodoistIdFromNodeLike(node);
 }
 
 /**
@@ -268,11 +288,8 @@ async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
       });
     }
 
-    // Yield to main thread periodically to keep UI responsive
     blockCount++;
-    if (blockCount % YIELD_BATCH_SIZE === 0) {
-      await yieldToMain();
-    }
+    await maybeYield(blockCount);
   }
 
   await removeObsoleteBlocks(blockMap, seenIds);
@@ -306,29 +323,17 @@ async function removeObsoleteBlocks(blockMap: Map<string, RoamBasicNode>, seenId
     await deleteBlock(node.uid);
     await delay(MUTATION_DELAY_MS);
 
-    // Yield to main thread periodically to keep UI responsive
     removeCount++;
-    if (removeCount % YIELD_BATCH_SIZE === 0) {
-      await yieldToMain();
-    }
+    await maybeYield(removeCount);
   }
 }
 
 /**
- * Extracts todoist-id from a BlockPayload, checking both main text and children.
+ * Extracts todoist-id from a BlockPayload.
+ * Delegates to the unified extractTodoistIdFromNodeLike helper.
  */
 function extractTodoistIdFromBlock(block: BlockPayload): string | undefined {
-  // First check main text (legacy format)
-  let id = extractTodoistId(block.text);
-  if (id) return id;
-
-  // Check children (new format: properties as child blocks)
-  for (const child of block.children) {
-    id = extractTodoistId(child.text);
-    if (id) return id;
-  }
-
-  return undefined;
+  return extractTodoistIdFromNodeLike(block);
 }
 
 /**
@@ -386,11 +391,8 @@ async function syncChildren(parentUid: string, newChildren: BlockPayload[]) {
       });
     }
 
-    // Yield to main thread periodically to keep UI responsive
     childCount++;
-    if (childCount % YIELD_BATCH_SIZE === 0) {
-      await yieldToMain();
-    }
+    await maybeYield(childCount);
   }
 }
 
@@ -451,16 +453,11 @@ async function cleanupObsoletePages(
       await deleteBlock(node.uid);
       await delay(MUTATION_DELAY_MS);
 
-      // Yield to main thread periodically to keep UI responsive
       cleanupCount++;
-      if (cleanupCount % YIELD_BATCH_SIZE === 0) {
-        await yieldToMain();
-      }
+      await maybeYield(cleanupCount);
     }
 
     await updatePlaceholderState(pageUid);
-
-    // Yield after processing each page
     await yieldToMain();
   }
 }
@@ -545,16 +542,16 @@ export function buildPropertyBlocks(
   const properties: BlockPayload[] = [];
 
   // todoist-id is always first - this is how we identify the block
-  properties.push({ text: `todoist-id:: [${task.id}](${url})`, children: [] });
+  properties.push(createPropertyBlock(TODOIST_ID_PROPERTY, `[${task.id}](${url})`));
 
   const duePropertyValue = resolveDuePropertyValue(task);
   if (duePropertyValue) {
-    properties.push({ text: `${TODOIST_DUE_PROPERTY}:: ${duePropertyValue}`, children: [] });
+    properties.push(createPropertyBlock(TODOIST_DUE_PROPERTY, duePropertyValue));
   }
 
   const description = safeText(task.description ?? "");
   if (description) {
-    properties.push({ text: `todoist-desc:: ${description}`, children: [] });
+    properties.push(createPropertyBlock("todoist-desc", description));
   }
 
   const labelsProperty = labels
@@ -563,7 +560,7 @@ export function buildPropertyBlocks(
     .join(" ");
 
   if (labelsProperty) {
-    properties.push({ text: `todoist-labels:: ${labelsProperty}`, children: [] });
+    properties.push(createPropertyBlock("todoist-labels", labelsProperty));
   }
 
   if (task.completed) {
@@ -571,13 +568,13 @@ export function buildPropertyBlocks(
     const formatted = formatCompletedDate(completedDate);
     const completedValue = formatted ? `[[${formatted}]]` : completedDate ? safeLinkText(completedDate) : "";
     if (completedValue) {
-      properties.push({ text: `${TODOIST_COMPLETED_PROPERTY}:: ${completedValue}`, children: [] });
+      properties.push(createPropertyBlock(TODOIST_COMPLETED_PROPERTY, completedValue));
     }
   }
 
   const statusValue = task.status ?? (task.completed ? "completed" : "active");
   const statusAlias = resolveStatusAlias(statusValue, statusAliases);
-  properties.push({ text: `${TODOIST_STATUS_PROPERTY}:: ${statusAlias}`, children: [] });
+  properties.push(createPropertyBlock(TODOIST_STATUS_PROPERTY, statusAlias));
 
   return properties;
 }
@@ -632,11 +629,8 @@ function buildCommentUrl(task: TodoistBackupTask, comment: TodoistComment) {
 }
 
 function formatCommentTimestamp(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return safeText(value);
-  }
-  return parsed.toISOString();
+  const parsed = safeParseDateToLocal(value);
+  return parsed ? parsed.toISOString() : safeText(value);
 }
 
 function isCommentWrapper(content: string) {
@@ -728,20 +722,7 @@ export function buildBlockMap(tree: RoamBasicNode[]) {
   const map = new Map<string, RoamBasicNode>();
 
   for (const node of tree) {
-    const text = node.text ?? "";
-    let id = extractTodoistId(text);
-
-    // If not found in main block, check children (properties are stored as child blocks)
-    if (!id && node.children && node.children.length > 0) {
-      for (const child of node.children) {
-        const childText = child.text ?? "";
-        id = extractTodoistId(childText);
-        if (id) {
-          break;
-        }
-      }
-    }
-
+    const id = extractTodoistIdFromNode(node);
     if (id) {
       map.set(id, node);
       logDebug("build_block_map_found", { id, uid: node.uid });
