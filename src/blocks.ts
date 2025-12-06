@@ -75,22 +75,28 @@ export async function writeBlocks(
   labelMap: Map<string, string>,
   statusAliases: StatusAliases
 ) {
+  // First, read existing due dates from blocks to preserve them for completed tasks
+  const existingDueDates = readExistingDueDates(pagePrefix, tasks);
+
   const tasksByPage = new Map<string, TaskWithBlock[]>();
 
   for (const task of tasks) {
-    const pageName = resolveTaskPageName(task, pagePrefix);
+    // Enrich task with existing due date if not already set
+    const enrichedTask = enrichTaskWithExistingDue(task, existingDueDates);
+
+    const pageName = resolveTaskPageName(enrichedTask, pagePrefix);
     // Properties are stored as child blocks, followed by comments
-    const propertyBlocks = buildPropertyBlocks(task, projectMap, labelMap, statusAliases);
-    const commentBlocks = buildCommentBlocks(task);
+    const propertyBlocks = buildPropertyBlocks(enrichedTask, projectMap, labelMap, statusAliases);
+    const commentBlocks = buildCommentBlocks(enrichedTask);
     const block: BlockPayload = {
-      text: blockContent(task, projectMap, labelMap, statusAliases),
+      text: blockContent(enrichedTask, projectMap, labelMap, statusAliases),
       children: [...propertyBlocks, ...commentBlocks],
     };
 
     if (!tasksByPage.has(pageName)) {
       tasksByPage.set(pageName, []);
     }
-    tasksByPage.get(pageName)!.push({ task, block });
+    tasksByPage.get(pageName)!.push({ task: enrichedTask, block });
   }
 
   let pageCount = 0;
@@ -106,6 +112,105 @@ export async function writeBlocks(
   }
 
   await cleanupObsoletePages(pagePrefix, tasksByPage);
+}
+
+/**
+ * Reads existing due dates from Roam blocks for all tasks.
+ * This preserves due dates that were set when tasks were active,
+ * even after Todoist clears them on completion.
+ */
+function readExistingDueDates(
+  pagePrefix: string,
+  tasks: TodoistBackupTask[]
+): Map<string, string> {
+  const dueDates = new Map<string, string>();
+
+  for (const task of tasks) {
+    const taskId = String(task.id);
+    const pageName = resolveTaskPageName(task, pagePrefix);
+    const pageUid = getPageUidByPageTitle(pageName);
+
+    if (!pageUid) {
+      continue;
+    }
+
+    const existingTree = getBasicTreeByParentUid(pageUid);
+    const existingDue = extractExistingDueDate(existingTree, taskId);
+
+    if (existingDue) {
+      dueDates.set(taskId, existingDue);
+      logDebug("read_existing_due_date", { taskId, existingDue });
+    }
+  }
+
+  return dueDates;
+}
+
+/**
+ * Extracts the due date from existing block children for a specific task.
+ */
+function extractExistingDueDate(tree: RoamBasicNode[], taskId: string): string | undefined {
+  for (const node of tree) {
+    // Check if this node belongs to the task (by todoist-id in children)
+    const nodeTaskId = extractTodoistIdFromNode(node);
+    if (nodeTaskId !== taskId) {
+      continue;
+    }
+
+    // Look for todoist-due:: in children
+    for (const child of node.children ?? []) {
+      const text = child.text ?? "";
+      const match = text.match(new RegExp(`^${TODOIST_DUE_PROPERTY}::\\s*(.+)$`, "i"));
+      if (match) {
+        return match[1].trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extracts todoist-id from a RoamBasicNode, checking both main text and children.
+ */
+function extractTodoistIdFromNode(node: RoamBasicNode): string | undefined {
+  // First check main text (legacy format)
+  let id = extractTodoistId(node.text ?? "");
+  if (id) return id;
+
+  // Check children (new format: properties as child blocks)
+  for (const child of node.children ?? []) {
+    id = extractTodoistId(child.text ?? "");
+    if (id) return id;
+  }
+
+  return undefined;
+}
+
+/**
+ * Enriches a task with existing due date if it's missing from the API response.
+ * This ensures completed tasks preserve their original due date in the title.
+ */
+function enrichTaskWithExistingDue(
+  task: TodoistBackupTask,
+  existingDueDates: Map<string, string>
+): TodoistBackupTask {
+  // If task already has a due date or fallbackDue, use as-is
+  if (task.due?.date || task.due?.datetime || task.fallbackDue) {
+    return task;
+  }
+
+  const taskId = String(task.id);
+  const existingDue = existingDueDates.get(taskId);
+
+  if (existingDue) {
+    return {
+      ...task,
+      fallbackDue: existingDue,
+    };
+  }
+
+  return task;
 }
 
 async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
@@ -546,23 +651,27 @@ function commentTimestamp(value: string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+/**
+ * Determines the primary date for the task title.
+ * Always uses the due date (when the task was scheduled to be done).
+ * Does NOT fall back to completed date - the completed date is stored
+ * separately in todoist-completed:: property for tracking.
+ */
 function resolvePrimaryDate(task: TodoistBackupTask) {
+  // First, try the current due date from the task
   const dueFormatted = formatDue(task.due);
   if (dueFormatted) {
     return safeLinkText(dueFormatted);
   }
+
+  // Then, try the fallback due date (preserved from when task was active)
   const fallback = task.fallbackDue ?? "";
   if (fallback) {
     return safeLinkText(fallback);
   }
 
-  if (task.completed) {
-    const completedFormatted = formatCompletedDate(task.completed_date ?? task.completed_at ?? "");
-    if (completedFormatted) {
-      return safeLinkText(completedFormatted);
-    }
-  }
-
+  // No due date available - don't substitute with completed date
+  // The completed date is tracked in todoist-completed:: property
   return "";
 }
 
