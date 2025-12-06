@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.2...v1.0.3) (2025-12-06)
+
+
+### Bug Fixes
+
+* convertInlineTodoistLabels supports email, label, and wiki link edge cases ([edf99b4](https://github.com/avelino/roamresearch-todoist-backup/commit/edf99b4fa740a196103bf647d89fb744da16920a))
+
 ## [1.0.2](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.1...v1.0.2) (2025-11-28)
 
 
