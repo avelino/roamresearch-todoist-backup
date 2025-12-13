@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/avelino/roamresearch-todoist-backup/compare/v2.0.0...v2.0.1) (2025-12-13)
+
+
+### Bug Fixes
+
+* **constants:** change topbar icon from "folder-open" to "tick-circle" ([c00d099](https://github.com/avelino/roamresearch-todoist-backup/commit/c00d0998790fd0ebcbb89c6a15520fff1c3fad20))
+
 # [2.0.0](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.3...v2.0.0) (2025-12-06)
 
 ## [1.0.3](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.2...v1.0.3) (2025-12-06)
