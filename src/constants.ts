@@ -16,4 +16,4 @@ export const DEFAULT_STATUS_ALIAS_DELETED = "❌";
 export const CONFIG_PAGE_TITLE = "roam/js/todoist-backup";
 export const COMMAND_LABEL = "Todoist: Sync backup";
 export const TOPBAR_BUTTON_ID = "roam-todoist-backup-button";
-export const TOPBAR_ICON_NAME = "folder-open";
+export const TOPBAR_ICON_NAME = "tick-circle";
