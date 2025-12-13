@@ -8,11 +8,11 @@ export default defineConfig({
     global: "window",
   },
   build: {
-    outDir: "dist",
+    outDir: ".",
     target: "esnext",
     minify: "esbuild",
-    sourcemap: true,
-    emptyOutDir: true,
+    sourcemap: false,
+    emptyOutDir: false,
     lib: {
       entry: resolve(__dirname, "src/main.ts"),
       name: "RoamTodoistBackup",

@@ -23,7 +23,7 @@ export default {
       "@semantic-release/exec",
       {
         prepareCmd:
-          "zip -qq -r roam-todoist-backup-${nextRelease.version}.zip dist README.md logo.png LICENSE package.json",
+          "zip -qq -r roam-todoist-backup-${nextRelease.version}.zip extension.js README.md logo.png LICENSE package.json",
       },
     ],
     [

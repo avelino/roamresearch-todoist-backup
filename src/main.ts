@@ -83,9 +83,6 @@ async function onload(args: OnloadArgs): Promise<void> {
   }
 
   try {
-    // Wait a bit for Roam API to be fully ready
-    await new Promise(resolve => setTimeout(resolve, 100));
-
     const { extensionAPI } = args;
     extensionAPIRef = extensionAPI;
     settingsHandle = await initializeSettings(extensionAPI);

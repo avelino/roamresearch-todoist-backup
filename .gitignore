@@ -1,8 +1,9 @@
 node_modules
 .DS_Store
-dist
+dist/
 dist-ssr
 *.local
+extension.js
 
 # clj
 .lsp/.cache/
