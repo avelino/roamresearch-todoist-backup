@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/avelino/roamresearch-todoist-backup/compare/v2.0.1...v2.0.2) (2025-12-14)
+
+
+### Bug Fixes
+
+* place bold outside links for labels and block refs in safeLinkText ([70969d1](https://github.com/avelino/roamresearch-todoist-backup/commit/70969d15ce9cc06bea13832c5af6fb9b5fd5ed71))
+
 ## [2.0.1](https://github.com/avelino/roamresearch-todoist-backup/compare/v2.0.0...v2.0.1) (2025-12-13)
 
 
