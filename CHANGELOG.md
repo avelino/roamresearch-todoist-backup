@@ -9,13 +9,11 @@
 
 ## [1.0.3](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.2...v1.0.3) (2025-12-06)
 
-
 ### Bug Fixes
 
 * convertInlineTodoistLabels supports email, label, and wiki link edge cases ([edf99b4](https://github.com/avelino/roamresearch-todoist-backup/commit/edf99b4fa740a196103bf647d89fb744da16920a))
 
 ## [1.0.2](https://github.com/avelino/roamresearch-todoist-backup/compare/v1.0.1...v1.0.2) (2025-11-28)
-
 
 ### Bug Fixes
 
@@ -38,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 * **Task title date always shows due date** - the date in the task title now always displays when the task was scheduled (due date), not when it was completed; the original due date is preserved from existing blocks even after Todoist clears it on completion; completed date is stored separately in `todoist-completed::` property for tracking
+* **Bold formatting inside links** - bold markers are now moved outside of Roam and Markdown links to prevent broken rendering (e.g., `[**Label**](url)` becomes `**[Label](url)**`)
 * **Sync blocking typing in Roam** - implemented cooperative scheduling with `yieldToMain()` that periodically yields control back to the browser during sync operations, allowing users to continue typing without interruption
 * Rate limit exceeded error during sync with many tasks - increased mutation delay from 50ms to 100ms and added proper delays in recursive block creation
 * Tasks dated "today" being recorded as yesterday due to timezone handling - ISO dates (YYYY-MM-DD) are now interpreted as local time instead of UTC

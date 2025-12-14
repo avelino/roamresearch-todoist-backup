@@ -532,6 +532,153 @@ export function safeText(value: string | null | undefined) {
 }
 
 /**
+ * Returns the matching closing parenthesis for a Markdown link destination.
+ *
+ * Supports nested parentheses and escaped characters.
+ *
+ * @param text Full text containing a parenthesis-delimited segment.
+ * @param openIndex Index of the opening "(" character.
+ */
+function findMatchingParen(text: string, openIndex: number): number {
+  if (text[openIndex] !== "(") return -1;
+
+  let depth = 0;
+
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "\\") {
+      index += 1;
+      continue;
+    }
+
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Moves bold markers outside of Roam and Markdown links.
+ *
+ * Roam does not reliably parse `**` when it appears inside link labels.
+ * Normalize:
+ * - `[**Label**](url)` -> `**[Label](url)**`
+ * - `[[**Page**]]` -> `**[[Page]]**`
+ *
+ * If the link is already wrapped with outer bold markers (e.g. `**[**Label**](url)**`),
+ * this function strips the inner bold markers and preserves the outer ones.
+ *
+ * @param value Sanitized text potentially containing links.
+ */
+function normalizeBoldInsideLinks(value: string): string {
+  if (!value || !value.includes("**")) {
+    return value;
+  }
+
+  let result = "";
+  let index = 0;
+
+  while (index < value.length) {
+    // Roam page links: [[...]]
+    if (value.startsWith("[[", index)) {
+      const end = value.indexOf("]]", index + 2);
+      if (end === -1) {
+        result += value.slice(index);
+        break;
+      }
+
+      const label = value.slice(index + 2, end);
+      if (label.startsWith("**") && label.endsWith("**") && label.length >= 4) {
+        const inner = label.slice(2, -2).trim();
+        if (inner) {
+          const hasOuterBold =
+            index >= 2 &&
+            value.slice(index - 2, index) === "**" &&
+            end + 4 <= value.length &&
+            value.slice(end + 2, end + 4) === "**";
+
+          result += hasOuterBold ? `[[${inner}]]` : `**[[${inner}]]**`;
+          index = end + 2;
+          continue;
+        }
+      }
+
+      result += value.slice(index, end + 2);
+      index = end + 2;
+      continue;
+    }
+
+    // Markdown links: [label](destination)
+    if (value[index] === "[" && value[index + 1] !== "[") {
+      const closingBracket = value.indexOf("]", index + 1);
+      if (closingBracket === -1) {
+        result += value.slice(index);
+        break;
+      }
+
+      let afterBracket = closingBracket + 1;
+      while (afterBracket < value.length && /\s/.test(value[afterBracket] ?? "")) {
+        afterBracket += 1;
+      }
+
+      if (value[afterBracket] !== "(") {
+        result += value.slice(index, closingBracket + 1);
+        index = closingBracket + 1;
+        continue;
+      }
+
+      const closingParen = findMatchingParen(value, afterBracket);
+      if (closingParen === -1) {
+        result += value.slice(index, closingBracket + 1);
+        index = closingBracket + 1;
+        continue;
+      }
+
+      const label = value.slice(index + 1, closingBracket);
+      if (!(label.startsWith("**") && label.endsWith("**") && label.length >= 4)) {
+        result += value.slice(index, closingParen + 1);
+        index = closingParen + 1;
+        continue;
+      }
+
+      const inner = label.slice(2, -2).trim();
+      if (!inner) {
+        result += value.slice(index, closingParen + 1);
+        index = closingParen + 1;
+        continue;
+      }
+
+      const linkTail = value.slice(closingBracket + 1, closingParen + 1);
+      const hasOuterBold =
+        index >= 2 &&
+        value.slice(index - 2, index) === "**" &&
+        closingParen + 3 <= value.length &&
+        value.slice(closingParen + 1, closingParen + 3) === "**";
+
+      const normalizedLink = `[${inner}]${linkTail}`;
+      result += hasOuterBold ? normalizedLink : `**${normalizedLink}**`;
+      index = closingParen + 1;
+      continue;
+    }
+
+    result += value[index];
+    index += 1;
+  }
+
+  return result;
+}
+
+/**
  * Sanitizes text while preserving balanced Roam and Markdown link syntax.
  */
 export function safeLinkText(value: string | null | undefined) {
@@ -576,7 +723,8 @@ export function safeLinkText(value: string | null | undefined) {
     index += 1;
   }
 
-  return safeText(pieces.join(""));
+  const normalized = safeText(pieces.join(""));
+  return normalizeBoldInsideLinks(normalized);
 }
 
 /**
