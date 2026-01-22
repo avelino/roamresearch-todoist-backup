@@ -3,15 +3,12 @@ import {
   getPageUidByPageTitle,
   getPageTitlesStartingWithPrefix,
   createPage,
-  createBlock,
-  updateBlock,
   deleteBlock,
   delay,
   yieldToMain,
   maybeYield,
   MUTATION_DELAY_MS,
   type RoamBasicNode,
-  type InputTextNode,
 } from "./settings";
 
 import {
@@ -24,6 +21,13 @@ import {
   TODOIST_ID_PROPERTY,
   TODOIST_STATUS_PROPERTY,
 } from "./constants";
+
+import {
+  BlockReconciler,
+  createRoamApiAdapter,
+  type BlockPayload as ReconcilerBlockPayload,
+  type RoamNode,
+} from "./reconciler";
 import {
   formatDue,
   formatLabelTag,
@@ -233,66 +237,70 @@ function enrichTaskWithExistingDue(
   return task;
 }
 
+/**
+ * Creates a BlockReconciler configured for Todoist tasks.
+ */
+function createTodoistReconciler() {
+  const roamApi = createRoamApiAdapter();
+
+  return new BlockReconciler<BlockPayload>({
+    extractId: (block) => extractTodoistIdFromBlock(block) ?? "",
+    buildBlock: (block) => block as ReconcilerBlockPayload,
+    extractIdFromBlock: (node: RoamNode) => extractTodoistIdFromNodeLike(node),
+    options: {
+      preserveWhen: (node: RoamNode) => shouldPreserveBlock(node),
+    },
+  }, roamApi).withChildrenReconciler({
+    extractKey: extractPropertyKey,
+    isSpecialBlock: isCommentWrapper,
+  });
+}
+
+/**
+ * Determines if a block should be preserved during cleanup.
+ * Preserves completed tasks even when they're no longer in the source.
+ */
+function shouldPreserveBlock(node: RoamNode): boolean {
+  const content = node.text ?? "";
+  const status = extractTodoistStatus(content);
+
+  if (status === "completed") {
+    return true;
+  }
+
+  // Check children for todoist-status or todoist-completed properties
+  for (const child of node.children ?? []) {
+    const childStatus = extractTodoistStatus(child.text ?? "");
+    if (childStatus === "completed") {
+      return true;
+    }
+    if (hasCompletedProperty(child.text ?? "")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
   // ensurePage/createPage includes its own delay when creating new pages
   const pageUid = await ensurePage(pageName);
 
-  const existingTree = getBasicTreeByParentUid(pageUid);
-  const blockMap = buildBlockMap(existingTree);
-
-  // Log existing blocks for debugging
-  const existingIds = Array.from(blockMap.keys());
-  const existingTexts = existingTree.map(n => ({
-    text: n.text?.substring(0, 50) + "...",
-    childCount: n.children?.length ?? 0,
-    firstChildText: n.children?.[0]?.text?.substring(0, 50) ?? "no children"
-  }));
-
-  logDebug("write_blocks_to_page", {
+  logDebug("write_blocks_to_page_start", {
     pageName,
     pageUid,
-    existingBlocksCount: existingTree.length,
-    blockMapSize: blockMap.size,
-    existingIds,
-    existingTexts,
     newBlocksCount: blocks.length,
   });
 
-  const seenIds = new Set<string>();
-  let blockCount = 0;
-  for (const block of blocks) {
-    // Extract todoist-id from child blocks (new structure) or main text (legacy)
-    const todoistId = extractTodoistIdFromBlock(block);
-    if (!todoistId) {
-      continue;
-    }
-    seenIds.add(todoistId);
+  // Use reconciler for efficient incremental sync
+  const reconciler = createTodoistReconciler();
+  const stats = await reconciler.reconcile(pageUid, blocks);
 
-    const existing = blockMap.get(todoistId);
-    if (existing) {
-      // Update main block text if changed
-      if (existing.text !== block.text) {
-        logDebug("update_existing_block", { todoistId, uid: existing.uid });
-        await updateBlock({ uid: existing.uid, text: block.text });
-        await delay(MUTATION_DELAY_MS);
-      }
-      // Sync children (properties + comments)
-      await syncChildren(existing.uid, block.children);
-    } else {
-      logDebug("create_new_block", { todoistId, pageName });
-      // createBlock includes its own delays for rate limiting
-      await createBlock({
-        parentUid: pageUid,
-        order: "last",
-        node: toInputNode(block),
-      });
-    }
+  logDebug("write_blocks_to_page_complete", {
+    pageName,
+    ...stats,
+  });
 
-    blockCount++;
-    await maybeYield(blockCount);
-  }
-
-  await removeObsoleteBlocks(blockMap, seenIds);
   await updatePlaceholderState(pageUid);
 }
 
@@ -306,94 +314,12 @@ async function ensurePage(pageName: string): Promise<string> {
   return uid;
 }
 
-async function removeObsoleteBlocks(blockMap: Map<string, RoamBasicNode>, seenIds: Set<string>) {
-  let removeCount = 0;
-  for (const [todoistId, node] of blockMap.entries()) {
-    if (seenIds.has(todoistId)) {
-      continue;
-    }
-    const content = node.text ?? "";
-    const status = extractTodoistStatus(content);
-    if (status === "completed") {
-      continue;
-    }
-    if (!status && hasCompletedProperty(content)) {
-      continue;
-    }
-    await deleteBlock(node.uid);
-    await delay(MUTATION_DELAY_MS);
-
-    removeCount++;
-    await maybeYield(removeCount);
-  }
-}
-
 /**
  * Extracts todoist-id from a BlockPayload.
  * Delegates to the unified extractTodoistIdFromNodeLike helper.
  */
 function extractTodoistIdFromBlock(block: BlockPayload): string | undefined {
   return extractTodoistIdFromNodeLike(block);
-}
-
-/**
- * Synchronizes child blocks (properties and comments) for an existing task block.
- * Updates existing properties, creates new ones, and handles comment wrappers.
- */
-async function syncChildren(parentUid: string, newChildren: BlockPayload[]) {
-  const existingChildren = getBasicTreeByParentUid(parentUid);
-
-  // Build a map of existing property blocks by their property key (e.g., "todoist-id")
-  const existingPropsMap = new Map<string, RoamBasicNode>();
-  for (const child of existingChildren) {
-    const propKey = extractPropertyKey(child.text);
-    if (propKey) {
-      existingPropsMap.set(propKey, child);
-    }
-  }
-
-  // Process new children
-  let childCount = 0;
-  for (const newChild of newChildren) {
-    const propKey = extractPropertyKey(newChild.text);
-
-    if (propKey) {
-      // It's a property block
-      const existing = existingPropsMap.get(propKey);
-      if (existing) {
-        // Update if changed
-        if (existing.text !== newChild.text) {
-          await updateBlock({ uid: existing.uid, text: newChild.text });
-          await delay(MUTATION_DELAY_MS);
-        }
-        existingPropsMap.delete(propKey); // Mark as processed
-      } else {
-        // Create new property - createBlock includes its own delays
-        await createBlock({
-          parentUid,
-          order: "last",
-          node: toInputNode(newChild),
-        });
-      }
-    } else if (isCommentWrapper(newChild.text)) {
-      // It's a comment wrapper - delete old one and recreate
-      for (const child of existingChildren) {
-        if (isCommentWrapper(child.text)) {
-          await deleteBlock(child.uid);
-          await delay(MUTATION_DELAY_MS);
-        }
-      }
-      // createBlock includes its own delays
-      await createBlock({
-        parentUid,
-        order: "last",
-        node: toInputNode(newChild),
-      });
-    }
-
-    childCount++;
-    await maybeYield(childCount);
-  }
 }
 
 /**
@@ -756,12 +682,5 @@ function resolveStatusAlias(status: string, statusAliases: StatusAliases): strin
     default:
       return status;
   }
-}
-
-function toInputNode(payload: BlockPayload): InputTextNode {
-  return {
-    text: payload.text,
-    children: payload.children.map(toInputNode),
-  };
 }
 
