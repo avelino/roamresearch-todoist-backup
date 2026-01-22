@@ -3,11 +3,12 @@ import type {
   RoamNode,
   ReconcilerConfig,
   SyncStats,
+  ChildReconcilerConfig,
 } from "./types";
 import type { RoamApiAdapter } from "./roam-api-adapter";
-import { delay, maybeYield, MUTATION_DELAY_MS, YIELD_BATCH_SIZE } from "../settings";
+import { delay, yieldToMain, MUTATION_DELAY_MS, YIELD_BATCH_SIZE } from "../settings";
 import { logDebug } from "../logger";
-import { ChildrenReconciler, type ChildReconcilerConfig } from "./children-reconciler";
+import { ChildrenReconciler } from "./children-reconciler";
 
 /**
  * Reconciles a list of source items with existing Roam blocks.
@@ -93,7 +94,7 @@ export class BlockReconciler<T> {
       }
 
       operationCount++;
-      await maybeYield(operationCount);
+      await this.maybeYieldToMain(operationCount);
       this.config.options?.onProgress?.(stats);
     }
 
@@ -241,9 +242,18 @@ export class BlockReconciler<T> {
       logDebug("reconciler_delete", { id, uid: node.uid });
 
       operationCount++;
-      await maybeYield(operationCount);
+      await this.maybeYieldToMain(operationCount);
     }
 
     return deletedCount;
+  }
+
+  /**
+   * Yields to the main thread periodically based on the configured batch size.
+   */
+  private async maybeYieldToMain(count: number): Promise<void> {
+    if (count % this.yieldBatchSize === 0) {
+      await yieldToMain();
+    }
   }
 }

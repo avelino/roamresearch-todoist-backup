@@ -1,31 +1,7 @@
-import type { BlockPayload, RoamNode } from "./types";
+import type { BlockPayload, RoamNode, ChildReconcilerConfig } from "./types";
 import type { RoamApiAdapter } from "./roam-api-adapter";
 import { delay, maybeYield, MUTATION_DELAY_MS } from "../settings";
 import { logDebug } from "../logger";
-
-/**
- * Configuration for reconciling child blocks (properties).
- */
-export interface ChildReconcilerConfig {
-  /**
-   * Extracts the property key from block text.
-   * For example, extracts "todoist-id" from "todoist-id:: value".
-   * Returns undefined if the text is not a property block.
-   */
-  extractKey: (text: string) => string | undefined;
-
-  /**
-   * Identifies special blocks that need different handling.
-   * For example, comment wrapper blocks that should be replaced entirely.
-   */
-  isSpecialBlock?: (text: string) => boolean;
-
-  /**
-   * Delay in milliseconds between mutations.
-   * Default: 100ms
-   */
-  mutationDelayMs?: number;
-}
 
 /**
  * Statistics about a children sync operation.
@@ -116,6 +92,7 @@ export class ChildrenReconciler {
         } else {
           // Create new property
           await this.roamApi.createBlock(parentUid, newChild, "last");
+          await delay(this.mutationDelayMs);
           stats.created++;
           logDebug("children_reconciler_create", { key });
         }
@@ -132,9 +109,21 @@ export class ChildrenReconciler {
 
         // Create the new special block
         await this.roamApi.createBlock(parentUid, newChild, "last");
+        await delay(this.mutationDelayMs);
         stats.created++;
         logDebug("children_reconciler_create_special", { text: newChild.text.substring(0, 30) });
       }
+
+      operationCount++;
+      await maybeYield(operationCount);
+    }
+
+    // Delete orphaned property blocks that are no longer in the desired state
+    for (const [key, orphanBlock] of existingPropsMap) {
+      await delay(this.mutationDelayMs);
+      await this.roamApi.deleteBlock(orphanBlock.uid);
+      stats.deleted++;
+      logDebug("children_reconciler_delete_orphan", { key, uid: orphanBlock.uid });
 
       operationCount++;
       await maybeYield(operationCount);

@@ -101,7 +101,13 @@ export interface ChildReconcilerConfig {
 
   /**
    * Identifies special blocks that need different handling.
-   * For example, comment wrapper blocks.
+   * For example, comment wrapper blocks that should be replaced entirely.
    */
   isSpecialBlock?: (text: string) => boolean;
+
+  /**
+   * Delay in milliseconds between Roam API mutations.
+   * Default: 100ms
+   */
+  mutationDelayMs?: number;
 }
