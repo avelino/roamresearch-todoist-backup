@@ -244,7 +244,15 @@ function createTodoistReconciler() {
   const roamApi = createRoamApiAdapter();
 
   return new BlockReconciler<BlockPayload>({
-    extractId: (block) => extractTodoistIdFromBlock(block) ?? "",
+    extractId: (block) => {
+      const id = extractTodoistIdFromBlock(block);
+      if (!id) {
+        // This should not happen as we filter blocks without IDs before reconciling.
+        // If it does, throw to prevent silent data corruption.
+        throw new Error(`Block missing Todoist ID: ${block.text.substring(0, 50)}`);
+      }
+      return id;
+    },
     buildBlock: (block) => block as ReconcilerBlockPayload,
     extractIdFromBlock: (node: RoamNode) => extractTodoistIdFromNodeLike(node),
     options: {
@@ -259,12 +267,18 @@ function createTodoistReconciler() {
 /**
  * Determines if a block should be preserved during cleanup.
  * Preserves completed tasks even when they're no longer in the source.
+ * Handles both new structure (properties in children) and legacy (properties in main text).
  */
 function shouldPreserveBlock(node: RoamNode): boolean {
   const content = node.text ?? "";
   const status = extractTodoistStatus(content);
 
   if (status === "completed") {
+    return true;
+  }
+
+  // Legacy: check main block text for todoist-completed property
+  if (hasCompletedProperty(content)) {
     return true;
   }
 
@@ -286,15 +300,29 @@ async function writeBlocksToPage(pageName: string, blocks: BlockPayload[]) {
   // ensurePage/createPage includes its own delay when creating new pages
   const pageUid = await ensurePage(pageName);
 
+  // Filter out blocks without a valid Todoist ID to prevent collisions
+  const validBlocks = blocks.filter((block) => {
+    const id = extractTodoistIdFromBlock(block);
+    if (!id) {
+      logDebug("write_blocks_skip_no_id", {
+        text: block.text.substring(0, 50),
+      });
+      return false;
+    }
+    return true;
+  });
+
   logDebug("write_blocks_to_page_start", {
     pageName,
     pageUid,
-    newBlocksCount: blocks.length,
+    totalBlocks: blocks.length,
+    validBlocks: validBlocks.length,
+    skippedNoId: blocks.length - validBlocks.length,
   });
 
   // Use reconciler for efficient incremental sync
   const reconciler = createTodoistReconciler();
-  const stats = await reconciler.reconcile(pageUid, blocks);
+  const stats = await reconciler.reconcile(pageUid, validBlocks);
 
   logDebug("write_blocks_to_page_complete", {
     pageName,
