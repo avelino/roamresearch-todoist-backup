@@ -3,6 +3,8 @@ import {
   getPageUidByPageTitle,
   getPageTitlesStartingWithPrefix,
   createPage,
+  createBlock as roamCreateBlock,
+  updateBlock as roamUpdateBlock,
   deleteBlock,
   delay,
   yieldToMain,
@@ -27,7 +29,7 @@ import {
   createRoamApiAdapter,
   type BlockPayload as ReconcilerBlockPayload,
   type RoamNode,
-} from "./reconciler";
+} from "roam-block-reconciler";
 import {
   formatDue,
   formatLabelTag,
@@ -241,7 +243,12 @@ function enrichTaskWithExistingDue(
  * Creates a BlockReconciler configured for Todoist tasks.
  */
 function createTodoistReconciler() {
-  const roamApi = createRoamApiAdapter();
+  const roamApi = createRoamApiAdapter({
+    getBasicTreeByParentUid,
+    createBlock: roamCreateBlock,
+    updateBlock: roamUpdateBlock,
+    deleteBlock,
+  });
 
   return new BlockReconciler<BlockPayload>({
     extractId: (block) => {
