@@ -31,7 +31,7 @@ interface InputTextNode {
 /**
  * Gets the Roam Alpha API from window.
  */
-function getRoamAPI() {
+export function getRoamAPI() {
   return (window as unknown as { roamAlphaAPI?: RoamAlphaAPI }).roamAlphaAPI;
 }
 
@@ -45,6 +45,9 @@ interface RoamAlphaAPI {
   };
   createPage?: (config: { page: { title: string; uid?: string } }) => Promise<void>;
   createBlock?: (config: { location: { "parent-uid": string; order: number | "last" }; block: { string: string; uid?: string } }) => Promise<void>;
+  constants?: {
+    corsAnywhereProxyUrl?: string;
+  };
 }
 
 /**

@@ -5,6 +5,50 @@ import {
 } from "./constants";
 import { logError, logDebug } from "./logger";
 
+/**
+ * Gets the Roam CORS proxy URL.
+ * Uses roamAlphaAPI.constants.corsAnywhereProxyUrl which is hosted by the Roam team.
+ * @throws Error if proxy URL is not available
+ */
+function getRoamProxyUrl(): string {
+  try {
+    const api = (window as { roamAlphaAPI?: { constants?: { corsAnywhereProxyUrl?: string } } }).roamAlphaAPI;
+    const proxyUrl = api?.constants?.corsAnywhereProxyUrl;
+
+    logDebug("get_proxy_url", {
+      hasAPI: !!api,
+      hasConstants: !!api?.constants,
+      proxyUrl: proxyUrl || "NOT_FOUND"
+    });
+
+    if (!proxyUrl) {
+      throw new Error("Roam CORS proxy URL not available in roamAlphaAPI.constants.corsAnywhereProxyUrl");
+    }
+
+    return proxyUrl;
+  } catch (error) {
+    logError("failed to get Roam proxy URL", error);
+    throw error;
+  }
+}
+
+/**
+ * Builds a proxied URL using Roam's CORS proxy.
+ * @param targetUrl The target URL to proxy
+ */
+function buildProxiedUrl(targetUrl: string): string {
+  try {
+    const proxyUrl = getRoamProxyUrl();
+    const proxied = `${proxyUrl}/${targetUrl}`;
+    logDebug("proxy_request", { target: targetUrl, proxied, proxyUrl });
+    return proxied;
+  } catch (error) {
+    logError("failed to build proxied URL, using direct URL (will likely fail with CORS)", { targetUrl, error });
+    // Fallback to direct URL (will fail with CORS but at least we'll see the error)
+    return targetUrl;
+  }
+}
+
 export type TodoistId = string | number;
 
 export type TodoistDue = {
@@ -183,11 +227,20 @@ export async function fetchPaginated<T>(
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetch(url.toString(), {
+    const targetUrl = url.toString();
+    const proxiedUrl = buildProxiedUrl(targetUrl);
+
+    logDebug("fetch_request", {
+      target: targetUrl,
+      proxied: proxiedUrl,
       method,
+    });
+
+    const response = await fetch(proxiedUrl, {
+      method,
+      mode: 'cors',
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
       },
     });
 
@@ -393,9 +446,18 @@ export function normalizeCompletedTask(item: TodoistCompletedItem): TodoistBacku
 /**
  * Retrieves completed Todoist tasks using the sync API with offset pagination.
  *
+ * TEMPORARY: Disabled as new API v1 doesn't have completed tasks endpoint yet.
+ * The old Sync API v9 was shut down on Feb 10, 2026.
+ * TODO: Find alternative way to get completed tasks in v1 or wait for API update
+ *
  * @param token Todoist API token.
  */
 export async function fetchCompletedTasks(token: string): Promise<TodoistBackupTask[]> {
+  // Temporarily return empty array - completed tasks endpoint doesn't exist in API v1
+  logDebug("fetch_completed_disabled", {
+    reason: "API v1 doesn't have completed tasks endpoint yet"
+  });
+  return [];
   const allItems: TodoistCompletedItem[] = [];
   const limit = 200;
   let offset = 0;
@@ -406,11 +468,19 @@ export async function fetchCompletedTasks(token: string): Promise<TodoistBackupT
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("offset", String(offset));
 
-    const response = await fetch(url.toString(), {
+    const targetUrl = url.toString();
+    const proxiedUrl = buildProxiedUrl(targetUrl);
+
+    logDebug("fetch_completed_request", {
+      target: targetUrl,
+      proxied: proxiedUrl,
+    });
+
+    const response = await fetch(proxiedUrl, {
       method: "GET",
+      mode: 'cors',
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
       },
     });
 

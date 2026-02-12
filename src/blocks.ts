@@ -146,7 +146,7 @@ export async function writeBlocks(
     await maybeYield(pageCount);
   }
 
-  await cleanupObsoletePages(pagePrefix, tasksByPage);
+  await cleanupObsoletePages(pagePrefix, tasksByPage, statusAliases);
 }
 
 /**
@@ -376,7 +376,8 @@ async function updatePlaceholderState(pageUid: string) {
 
 async function cleanupObsoletePages(
   pagePrefix: string,
-  currentTasksByPage: Map<string, TaskWithBlock[]>
+  currentTasksByPage: Map<string, TaskWithBlock[]>,
+  statusAliases: StatusAliases
 ) {
   const currentTaskIds = new Set<string>();
   for (const tasksWithBlocks of currentTasksByPage.values()) {
@@ -388,6 +389,8 @@ async function cleanupObsoletePages(
   const prefix = `${pagePrefix}/`;
   const pageTitles = getPageTitlesStartingWithPrefix(prefix);
   let cleanupCount = 0;
+  const today = formatDisplayDate(new Date().toISOString());
+
   for (const pageTitle of pageTitles) {
     if (currentTasksByPage.has(pageTitle)) {
       continue;
@@ -405,13 +408,22 @@ async function cleanupObsoletePages(
       }
       const content = node.text ?? "";
       const status = extractTodoistStatus(content);
+
+      // If already marked as completed, preserve it
       if (status === "completed") {
         continue;
       }
       if (!status && hasCompletedProperty(content)) {
         continue;
       }
-      await deleteBlock(node.uid);
+
+      // Task disappeared from API but not marked as completed
+      // Mark it as completed instead of deleting
+      logDebug("mark_task_completed", { todoistId, reason: "not_in_api" });
+
+      // Update status property to completed
+      const statusAlias = resolveStatusAlias("completed", statusAliases);
+      await updateStatusProperty(node, statusAlias, today);
       await delay(MUTATION_DELAY_MS);
 
       cleanupCount++;
@@ -420,6 +432,42 @@ async function cleanupObsoletePages(
 
     await updatePlaceholderState(pageUid);
     await yieldToMain();
+  }
+}
+
+/**
+ * Updates the status and completed date properties of a task block
+ */
+async function updateStatusProperty(
+  node: RoamBasicNode,
+  statusAlias: string,
+  completedDate: string
+): Promise<void> {
+  const children = node.children ?? [];
+
+  // Find and update status property
+  const statusChild = children.find((child) =>
+    child.text?.startsWith(`${TODOIST_STATUS_PROPERTY}::`)
+  );
+  if (statusChild) {
+    await roamUpdateBlock({ uid: statusChild.uid, text: `${TODOIST_STATUS_PROPERTY}:: ${statusAlias}` });
+    await delay(MUTATION_DELAY_MS);
+  }
+
+  // Add or update completed property
+  const completedChild = children.find((child) =>
+    child.text?.startsWith(`${TODOIST_COMPLETED_PROPERTY}::`)
+  );
+  if (completedChild) {
+    await roamUpdateBlock({ uid: completedChild.uid, text: `${TODOIST_COMPLETED_PROPERTY}:: [[${completedDate}]]` });
+  } else {
+    // Add completed property after status
+    const statusIndex = statusChild ? children.indexOf(statusChild) : children.length - 1;
+    await roamCreateBlock({
+      parentUid: node.uid,
+      order: statusIndex + 1,
+      node: { text: `${TODOIST_COMPLETED_PROPERTY}:: [[${completedDate}]]`, children: [] },
+    });
   }
 }
 
