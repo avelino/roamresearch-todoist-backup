@@ -1,7 +1,6 @@
 import {
   ISO_DATE_PATTERN,
-  TODOIST_REST_API_BASE,
-  TODOIST_SYNC_API_BASE,
+  TODOIST_API_BASE,
 } from "./constants";
 import { logError, logDebug } from "./logger";
 
@@ -84,6 +83,7 @@ type RawTodoistComment = {
 };
 
 export type TodoistCompletedItem = {
+  id?: TodoistId;
   task_id?: TodoistId;
   content?: string;
   description?: string | null;
@@ -92,6 +92,8 @@ export type TodoistCompletedItem = {
   label_ids?: Array<TodoistId>;
   completed_at?: string | null;
   completed_date?: string | null;
+  due?: TodoistDue | null;
+  url?: string;
   task?: Partial<TodoistTask> & { id?: TodoistId };
 };
 
@@ -211,7 +213,7 @@ export async function fetchPaginated<T>(
   const items: T[] = [];
   let cursor: string | undefined;
   const {
-    baseUrl = TODOIST_REST_API_BASE,
+    baseUrl = TODOIST_API_BASE,
     searchParams = {},
     method = "GET",
   } = options;
@@ -301,7 +303,7 @@ export async function fetchTaskComments(
         searchParams: {
           task_id: taskId,
         },
-        baseUrl: TODOIST_REST_API_BASE,
+        baseUrl: TODOIST_API_BASE,
       });
 
       const sanitized = comments
@@ -421,21 +423,22 @@ export function buildLabelMap(labels: TodoistLabel[]) {
  */
 export function normalizeCompletedTask(item: TodoistCompletedItem): TodoistBackupTask | undefined {
   const source = item.task ?? {};
-  const id = source.id ?? item.task_id;
+  // API v1 returns flat Task objects with id directly; Sync v9 used task_id
+  const id = item.id ?? source.id ?? item.task_id;
   if (id === undefined || id === null) {
     return undefined;
   }
 
-  const url = source.url ?? (id ? `https://todoist.com/showTask?id=${id}` : undefined);
+  const url = item.url ?? source.url ?? `https://todoist.com/showTask?id=${id}`;
 
   return {
     id,
-    content: source.content ?? item.content ?? "",
-    description: source.description ?? item.description ?? null,
-    project_id: source.project_id ?? item.project_id ?? null,
-    labels: source.labels ?? item.labels,
-    label_ids: source.label_ids ?? item.label_ids,
-    due: source.due ?? null,
+    content: item.content ?? source.content ?? "",
+    description: item.description ?? source.description ?? null,
+    project_id: item.project_id ?? source.project_id ?? null,
+    labels: item.labels ?? source.labels,
+    label_ids: item.label_ids ?? source.label_ids,
+    due: item.due ?? source.due ?? null,
     url,
     completed: true,
     completed_at: item.completed_at ?? null,
@@ -444,69 +447,29 @@ export function normalizeCompletedTask(item: TodoistCompletedItem): TodoistBacku
 }
 
 /**
- * Retrieves completed Todoist tasks using the sync API with offset pagination.
+ * Retrieves completed Todoist tasks using the unified API v1 endpoint.
  *
- * TEMPORARY: Disabled as new API v1 doesn't have completed tasks endpoint yet.
- * The old Sync API v9 was shut down on Feb 10, 2026.
- * TODO: Find alternative way to get completed tasks in v1 or wait for API update
+ * Uses /tasks/completed/by_completion_date with cursor-based pagination.
+ * Fetches tasks completed in the last 90 days by default.
  *
  * @param token Todoist API token.
  */
 export async function fetchCompletedTasks(token: string): Promise<TodoistBackupTask[]> {
-  // Temporarily return empty array - completed tasks endpoint doesn't exist in API v1
-  logDebug("fetch_completed_disabled", {
-    reason: "API v1 doesn't have completed tasks endpoint yet"
-  });
-  return [];
-  const allItems: TodoistCompletedItem[] = [];
-  const limit = 200;
-  let offset = 0;
-  let hasMore = true;
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const until = new Date().toISOString();
 
-  while (hasMore) {
-    const url = new URL(`${TODOIST_SYNC_API_BASE}/completed/get_all`);
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
+  logDebug("fetch_completed_start", { since, until });
 
-    const targetUrl = url.toString();
-    const proxiedUrl = buildProxiedUrl(targetUrl);
-
-    logDebug("fetch_completed_request", {
-      target: targetUrl,
-      proxied: proxiedUrl,
-    });
-
-    const response = await fetch(proxiedUrl, {
-      method: "GET",
-      mode: 'cors',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status} while fetching completed tasks`);
+  const items = await fetchPaginated<TodoistCompletedItem>(
+    "/tasks/completed/by_completion_date",
+    token,
+    {
+      searchParams: { since, until },
+      baseUrl: TODOIST_API_BASE,
     }
+  );
 
-    const body = (await response.json()) as { items?: TodoistCompletedItem[] };
-    const items = body.items ?? [];
-
-    logDebug("fetch_completed_batch", {
-      batchSize: items.length,
-      offset,
-      total: allItems.length + items.length,
-    });
-
-    allItems.push(...items);
-
-    if (items.length < limit) {
-      hasMore = false;
-    } else {
-      offset += limit;
-    }
-  }
-
-  return allItems
+  return items
     .map((item) => normalizeCompletedTask(item))
     .filter((task): task is TodoistBackupTask => Boolean(task));
 }
